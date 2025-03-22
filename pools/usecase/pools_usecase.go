@@ -579,6 +579,10 @@ func (p *poolsUseCase) StorePools(pools []ingesttypes.PoolI) error {
 		poolID := pool.GetId()
 		p.pools.Store(poolID, pool)
 
+		if poolID == 2166 {
+			fmt.Println(pool)
+		}
+
 		// If orderbook, update top liquidity pool for base and quote denom if it has higher liquidity capitalization.
 		sqsModel := pool.GetSQSPoolModel()
 		cosmWasmPoolModel := sqsModel.CosmWasmPoolModel
@@ -616,29 +620,29 @@ func (p *poolsUseCase) StorePools(pools []ingesttypes.PoolI) error {
 // CONTRACT: the given poolID is an orderbook pool.
 func (p *poolsUseCase) processOrderbookPoolIDForBaseQuote(baseDenom, quoteDenom string, poolID uint64, poolLiquidityCapitalization osmomath.Int, contractAddress string) (updatedBool bool, err error) {
 	// Format base and quote denom key.
-	baseQuoteKey := formatBaseQuoteDenom(baseDenom, quoteDenom)
+	baseQuoteKey := formatBaseQuoteDenom(baseDenom, quoteDenom) + fmt.Sprintf("~%d", poolID)
 
-	// Determine there is an existing top liquidity pool for the base and quote denom.
-	topLiquidityOrderBook, found := p.canonicalOrderBookForBaseQuoteDenom.Load(baseQuoteKey)
-	if found {
-		// Cast to orderBookEntry
-		topLiquidityOrderBookEntry, ok := topLiquidityOrderBook.(orderBookEntry)
-		if !ok {
-			err = domain.FailCastCanonicalOrderbookEntryError{
-				BaseQuoteKey: baseQuoteKey,
-			}
-			return false, err
-		}
+	// // Determine there is an existing top liquidity pool for the base and quote denom.
+	// topLiquidityOrderBook, found := p.canonicalOrderBookForBaseQuoteDenom.Load(baseQuoteKey)
+	// if found {
+	// 	// Cast to orderBookEntry
+	// 	topLiquidityOrderBookEntry, ok := topLiquidityOrderBook.(orderBookEntry)
+	// 	if !ok {
+	// 		err = domain.FailCastCanonicalOrderbookEntryError{
+	// 			BaseQuoteKey: baseQuoteKey,
+	// 		}
+	// 		return false, err
+	// 	}
 
-		// If the current pool has lower or equak liquidity capitalization than the top liquidity pool
-		// continue to the next pool
-		if poolLiquidityCapitalization.LTE(topLiquidityOrderBookEntry.LiquidityCap) {
-			return false, nil
-		}
+	// // If the current pool has lower or equak liquidity capitalization than the top liquidity pool
+	// // continue to the next pool
+	// if poolLiquidityCapitalization.LTE(topLiquidityOrderBookEntry.LiquidityCap) {
+	// 	return false, nil
+	// }
 
-		// Remove the old pool from the canonical map
-		p.canonicalOrderbookPoolIDs.Delete(topLiquidityOrderBookEntry.PoolID)
-	}
+	// // Remove the old pool from the canonical map
+	// p.canonicalOrderbookPoolIDs.Delete(topLiquidityOrderBookEntry.PoolID)
+	// }
 
 	// If not found or the current pool has higher liquidity capitalization than the top liquidity pool
 	// update the top liquidity pool
@@ -689,7 +693,7 @@ func (p *poolsUseCase) GetAllCanonicalOrderbookPoolIDs() ([]domain.CanonicalOrde
 
 		// split base and quote denom
 		denoms := strings.Split(baseQuoteKey, baseQuoteKeySeparator)
-		if len(denoms) != 2 {
+		if len(denoms) != 3 {
 			err = domain.FailSplitCanonicalOrderBookKeyError{
 				BaseQuoteKey: baseQuoteKey,
 			}

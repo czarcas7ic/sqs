@@ -10,11 +10,7 @@
 		"plugins": [
 			{
 				"name": "orderbook-fillbot-plugin",
-				"enabled": false
-			},
-			{
-				"name": "orderbook-claimbot-plugin",
-				"enabled": false
+				"enabled": true
 			}
 		]
 	}

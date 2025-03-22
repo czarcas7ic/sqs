@@ -263,3 +263,15 @@ orderbook-claimbot-stop:
 	cd ./ingest/usecase/plugins/orderbook/claimbot && docker compose down
 	cd ../../../../
 	echo "Orderbook Claim Bot Stopped"	
+
+
+orderbook-filler-cli-start:
+	OSMOSIS_KEYRING_PATH="/osmosis/.osmosisd/keyring-test" \
+	OSMOSIS_KEYRING_PASSWORD="test" \
+	OSMOSIS_KEYRING_KEY_NAME="local.info" \
+	SQS_OTEL_ENVIRONMENT="sqs-local-debugger" \
+	OSMOSIS_RPC_ENDPOINT="http://localhost:26657" \
+	OSMOSIS_LCD_ENDPOINT="http://localhost:1317" \
+	SQS_GRPC_TENDERMINT_RPC_ENDPOINT="http://localhost:26657" \
+	SQS_GRPC_INGESTER_PLUGINS_ORDERBOOK_ENABLED="true" \
+	go run ./app/main.go ./app/sidecar_query_server.go ./app/sqs_config.go --config config.json --host sqs-dev

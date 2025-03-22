@@ -39,15 +39,21 @@ type TxContextI interface {
 	// UpdateAdjustedGasTotal updates the adjusted gas total upon resimulating the transaction against chain.
 	UpdateAdjustedGasTotal(adjustedGasTotal uint64)
 
+	// AddMsgFiltered adds the given message to the transaction context only if it is of low value.
+	// Increases the total adjusted gas used and max tx fee cap with the message values.
+	// AddMsgFiltered(msgCtx msgctx.MsgContextI)
+
 	// AddMsg adds the given message to the transaction context.
 	// Increases the total adjusted gas used and max tx fee cap with the message values.
-	AddMsg(msgCtx msgctx.MsgContextI)
+	// forceAdd is only set to true when adding a high value message to tx context before executing it.
+	AddMsg(msgCtx msgctx.MsgContextI, forceAdd bool)
 }
 
 // txContext is a concrete implementation of TxContextI.
 type txContext struct {
 	msgsMx               sync.Mutex
 	msgs                 []msgctx.MsgContextI
+	uniquePools          map[uint64]struct{} // pools that have already been used by high value messages
 	adjustedGasUsedTotal uint64
 	maxTxFeeCap          osmomath.Dec
 }
@@ -68,6 +74,7 @@ var _ TxContextI = &txContext{}
 func New() *txContext {
 	return &txContext{
 		maxTxFeeCap: osmomath.ZeroDec(),
+		uniquePools: make(map[uint64]struct{}),
 	}
 }
 
@@ -77,9 +84,21 @@ func (t *txContext) GetAdjustedGasUsedTotal() uint64 {
 }
 
 // AddMsg implements TxContextI.
-func (t *txContext) AddMsg(msg msgctx.MsgContextI) {
+func (t *txContext) AddMsg(msg msgctx.MsgContextI, forceAdd bool) {
 	t.msgsMx.Lock()
 	defer t.msgsMx.Unlock()
+
+	// high-value messages that are not forced are simply logged for used pools
+	if !msg.IsLowValue() && !forceAdd {
+		// Extract pool IDs from the message
+		if msg, ok := msg.AsSDKMsg().(*poolmanagertypes.MsgSwapExactAmountIn); ok {
+			for _, route := range msg.Routes {
+				t.uniquePools[route.PoolId] = struct{}{}
+			}
+		}
+
+		return
+	}
 
 	t.msgs = append(t.msgs, msg)
 
@@ -88,6 +107,22 @@ func (t *txContext) AddMsg(msg msgctx.MsgContextI) {
 	t.maxTxFeeCap = t.maxTxFeeCap.Add(msg.GetMaxFeeCap())
 }
 
+// AddMsgFiltered implements TxContextI.
+// func (t *txContext) AddMsgFiltered(msg msgctx.MsgContextI) {
+// 	// high value messages are simply ignored, their
+// 	if !msg.IsLowValue() {
+// 		// Extract pool IDs from the message
+// 		if msg, ok := msg.AsSDKMsg().(*poolmanagertypes.MsgSwapExactAmountIn); ok {
+// 			for _, route := range msg.Routes {
+// 				t.uniquePools[route.PoolId] = struct{}{}
+// 			}
+// 		}
+// 		return
+// 	}
+
+// 	t.AddMsg(msg)
+// }
+
 // UpdateAdjustedGasTotal implements TxContextI.
 func (t *txContext) UpdateAdjustedGasTotal(newGasUsed uint64) {
 	t.adjustedGasUsedTotal = newGasUsed
@@ -95,8 +130,6 @@ func (t *txContext) UpdateAdjustedGasTotal(newGasUsed uint64) {
 
 // RankAndFilterMsgs implements TxContextI.
 func (t *txContext) RankAndFilterMsgs() {
-	uniquePools := make(map[uint64]struct{})
-
 	// Sort the messages by expected profit
 	sort.Slice(t.msgs, func(i, j int) bool {
 		// In the context of arbs, this is max profit
@@ -115,7 +148,7 @@ func (t *txContext) RankAndFilterMsgs() {
 				// Avoid overlapping pools in the transaction
 				// As the same pool in one arb might invalidate the other arb
 				// We first sort the messages by profit, so we can safely skip the pool
-				if _, ok := uniquePools[route.PoolId]; ok {
+				if _, ok := t.uniquePools[route.PoolId]; ok {
 					shouldSkipMessage = true
 					break
 				}
@@ -130,11 +163,11 @@ func (t *txContext) RankAndFilterMsgs() {
 
 			// If we did not skip the message, add the pools to the unique pools
 			for poolID := range uniquePoolsInMsg {
-				uniquePools[poolID] = struct{}{}
+				t.uniquePools[poolID] = struct{}{}
 			}
 
 			// Keep the message in the transaction context
-			finalTxContext.AddMsg(msgCtx)
+			finalTxContext.AddMsg(msgCtx, false)
 		}
 	}
 

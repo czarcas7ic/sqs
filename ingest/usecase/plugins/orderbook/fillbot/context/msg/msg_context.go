@@ -26,21 +26,28 @@ type MsgContextI interface {
 	// GetAdjustedGasUsed returns the gas used after simulating this message as a single tx
 	// and adjusting the gas by a constant pre-configured multiplier.
 	GetAdjustedGasUsed() uint64
+
+	// IsLowValue is set to true for messages that have relatively low payout (parameter that can be adjusted).
+	// Bundled messages are executed in a single transaction to save on transaction fees.
+	IsLowValue() bool
 }
 
 type msgContext struct {
 	adjustedGasUsed uint64
-	sdkMSg          sdk.Msg
+	sdkMsg          sdk.Msg
 
 	maxFeeCap osmomath.Dec
+
+	lowValue bool
 }
 
 // New returns the new message context
-func New(maxFeeCap osmomath.Dec, adjustedGasUsed uint64, sdkMsg sdk.Msg) *msgContext {
+func New(maxFeeCap osmomath.Dec, adjustedGasUsed uint64, sdkMsg sdk.Msg, lowValue bool) *msgContext {
 	return &msgContext{
 		maxFeeCap:       maxFeeCap,
 		adjustedGasUsed: adjustedGasUsed,
-		sdkMSg:          sdkMsg,
+		sdkMsg:          sdkMsg,
+		lowValue:        lowValue,
 	}
 }
 
@@ -51,12 +58,16 @@ func (m msgContext) GetAdjustedGasUsed() uint64 {
 
 // AsSDKMsg implements MsgContextI.
 func (m msgContext) AsSDKMsg() sdk.Msg {
-	return m.sdkMSg
+	return m.sdkMsg
 }
 
 // GetMaxFeeCap implements MsgContextI.
 func (m msgContext) GetMaxFeeCap() math.LegacyDec {
 	return m.maxFeeCap
+}
+
+func (m msgContext) IsLowValue() bool {
+	return m.lowValue
 }
 
 var _ MsgContextI = msgContext{}

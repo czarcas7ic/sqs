@@ -11,7 +11,11 @@
       "mode": "auto",
       "program": "${workspaceFolder}/app",
       "env": {
-        "OSMOSIS_KEYRING_PATH":"/root/.osmosisd/keyring-test",
+        "OSMOSIS_RPC_ENDPOINT": "http://localhost:26657",
+        "OSMOSIS_LCD_ENDPOINT": "http://localhost:1317",
+        "SQS_GRPC_TENDERMINT_RPC_ENDPOINT": "http://localhost:26657",
+        "SQS_GRPC_INGESTER_PLUGINS_ORDERBOOK_ENABLED": "true",
+        "OSMOSIS_KEYRING_PATH":"/osmosis/.osmosisd/keyring-test",
         "OSMOSIS_KEYRING_PASSWORD": "test",
 	    "OSMOSIS_KEYRING_KEY_NAME": "local.info",
         "SQS_OTEL_ENVIRONMENT": "sqs-local-debugger"
