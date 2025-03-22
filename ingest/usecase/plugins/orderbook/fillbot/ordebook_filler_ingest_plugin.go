@@ -128,7 +128,7 @@ func (o *orderbookFillerIngestPlugin) ProcessEndBlock(ctx context.Context, block
 	}
 
 	// Configure block context
-	blockCtx, err := blockctx.New(ctx, o.passthroughGRPCClient.GetChainGRPCClient(), uniqueOrderBookDenoms, orderBookDenomPrices, balances, o.defaultQuoteDenom, blockHeight)
+	blockCtx, err := blockctx.New(ctx, uniqueOrderBookDenoms, orderBookDenomPrices, balances, o.defaultQuoteDenom, blockHeight)
 	if err != nil {
 		return err
 	}

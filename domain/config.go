@@ -385,7 +385,8 @@ func PluginFactory(name string) Plugin {
 		return &OrderBookPluginConfig{}
 	case orderbookplugindomain.OrderbookClaimbotPlugin:
 		return &OrderBookPluginConfig{}
-	// Add cases for other plugins as needed
+	case orderbookplugindomain.OrderbookCyclicArbPlugin:
+		return &OrderBookPluginConfig{}
 	default:
 		return nil
 	}

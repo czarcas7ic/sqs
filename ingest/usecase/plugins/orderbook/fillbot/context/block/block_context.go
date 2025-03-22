@@ -8,7 +8,6 @@ import (
 	"github.com/osmosis-labs/sqs/domain"
 	orderbookplugindomain "github.com/osmosis-labs/sqs/domain/orderbook/plugin"
 	txctx "github.com/osmosis-labs/sqs/ingest/usecase/plugins/orderbook/fillbot/context/tx"
-	"google.golang.org/grpc"
 )
 
 // BlockCtxI is an interface abstracting the block-specific context.
@@ -58,7 +57,7 @@ type BlockGasPrice struct {
 var _ BlockCtxI = &blockContext{}
 
 // New creates a new block context.
-func New(ctx context.Context, chainGRPCClient grpc.ClientConnInterface, uniqueDenoms []string, orderBookDenomPrices domain.PricesResult, userBalances sdk.Coins, defaultQuoteDenom string, blockHeight uint64) (*blockContext, error) {
+func New(ctx context.Context, uniqueDenoms []string, orderBookDenomPrices domain.PricesResult, userBalances sdk.Coins, defaultQuoteDenom string, blockHeight uint64) (*blockContext, error) {
 	blockCtx := blockContext{
 		Context:     ctx,
 		txContext:   txctx.New(),

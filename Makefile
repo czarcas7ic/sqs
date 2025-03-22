@@ -261,5 +261,5 @@ orderbook-claimbot-start:
 
 orderbook-claimbot-stop:
 	cd ./ingest/usecase/plugins/orderbook/claimbot && docker compose down
-	cd ../../../../
+	cd ../../../../-
 	echo "Orderbook Claim Bot Stopped"	

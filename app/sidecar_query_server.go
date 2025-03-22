@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"net/http"
+	"os"
 
 	"time"
 
@@ -22,10 +24,13 @@ import (
 
 	"github.com/osmosis-labs/osmosis/v28/app"
 	txfeestypes "github.com/osmosis-labs/osmosis/v28/x/txfees/types"
+	cosmosbroadcast "github.com/osmosis-labs/osmoutil-go/tx/broadcast/cosmos"
+	broadcasttypes "github.com/osmosis-labs/osmoutil-go/tx/broadcast/types"
 	"github.com/osmosis-labs/sqs/domain/cosmos/auth/types"
 	ingestrpcdelivry "github.com/osmosis-labs/sqs/ingest/delivery/grpc"
 	ingestusecase "github.com/osmosis-labs/sqs/ingest/usecase"
 	"github.com/osmosis-labs/sqs/ingest/usecase/plugins/basefee"
+	"github.com/osmosis-labs/sqs/ingest/usecase/plugins/cyclicarb"
 	orderbookclaimbot "github.com/osmosis-labs/sqs/ingest/usecase/plugins/orderbook/claimbot"
 	orderbookfillbot "github.com/osmosis-labs/sqs/ingest/usecase/plugins/orderbook/fillbot"
 	orderbookrepository "github.com/osmosis-labs/sqs/orderbook/repository"
@@ -325,6 +330,29 @@ func NewSideCarQueryServer(appCodec codec.Codec, config domain.Config, logger lo
 					if err != nil {
 						return nil, err
 					}
+				}
+
+				if plugin.GetName() == orderbookplugindomain.OrderbookCyclicArbPlugin {
+					ctx := context.Background()
+
+					osmosisClientConfig := broadcasttypes.OsmosisClientConfig
+
+					restClient, err := cosmosbroadcast.NewCosmosRestClient("http://localhost:1317")
+					if err != nil {
+						return nil, err
+					}
+
+					privateKey := os.Getenv("SQS_CYCLIC_ARB_COSMOS_PRIVATE_KEY")
+					if privateKey == "" {
+						return nil, fmt.Errorf("SQS_CYCLIC_ARB_COSMOS_PRIVATE_KEY is not set")
+					}
+
+					cosmosSigner, err := cosmosbroadcast.InitializeCosmosSigner(ctx, privateKey, osmosisClientConfig, restClient)
+					if err != nil {
+						return nil, err
+					}
+
+					currentPlugin = cyclicarb.New(poolsUseCase, routerUsecase, tokensUseCase, passthroughGRPCClient, orderBookAPIClient, defaultQuoteDenom, cosmosSigner, logger)
 				}
 
 				// Register the plugin with the ingest use case

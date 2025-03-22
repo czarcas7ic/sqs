@@ -15,6 +15,10 @@
 			{
 				"name": "orderbook-claimbot-plugin",
 				"enabled": false
+			},
+            {
+				"name": "orderbook-cyclicarb-plugin",
+				"enabled": true
 			}
 		]
 	}
