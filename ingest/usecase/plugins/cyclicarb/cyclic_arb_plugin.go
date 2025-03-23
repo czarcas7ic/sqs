@@ -2,6 +2,7 @@ package cyclicarb
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -96,13 +97,6 @@ func (o *cyclicArbPlugin) ProcessEndBlock(ctx context.Context, blockHeight uint6
 		poolIDMonitored = 1464
 	)
 
-	// Iterate over pool IDs mo
-	for poolID := range metadata.PoolIDs {
-		if poolID == poolIDMonitored {
-			o.logger.Info("pool ID monitored was changed", zap.Uint64("pool_id", poolID))
-		}
-	}
-
 	// For simplicity, we allow only one block to be processed at a time.
 	// This may be relaxed in the future.
 	if !o.atomicBool.CompareAndSwap(false, true) {
@@ -137,49 +131,120 @@ func (o *cyclicArbPlugin) ProcessEndBlock(ctx context.Context, blockHeight uint6
 	proposedAmountIn := osmomath.NewInt(5_000_000)
 
 	wg := sync.WaitGroup{}
+	// Use a limited pool of workers to process arb opportunities
+	poolCount := len(metadata.PoolIDs)
+	maxWorkers := runtime.NumCPU() * 2 // Adjust based on your system
+	semaphore := make(chan struct{}, maxWorkers)
+
+	// Use buffered channel to collect results
+	results := make(chan struct {
+		poolID    uint64
+		denomIn   string
+		denomOut  string
+		amount    osmomath.Int
+		isSuccess bool
+		err       error
+	}, poolCount*2) // Two directions per pool
 
 	for poolID := range metadata.PoolIDs {
+		if poolID == poolIDMonitored {
+			o.logger.Info("pool ID monitored was changed", zap.Uint64("pool_id", poolID))
+		}
+
+		// Get pool
+		pool, err := o.poolsUseCase.GetPool(poolID)
+		if err != nil {
+			o.logger.Error("failed to get pool", zap.Error(err), zap.Uint64("pool_id", poolID))
+			continue
+		}
+
+		denoms := pool.GetPoolDenoms()
+		if len(denoms) < 2 {
+			continue
+		}
+
+		// Process both directions
 		wg.Add(2)
 
-		go func(poolID uint64) {
+		// Direction 1
+		go func(poolID uint64, denomIn, denomOut string) {
+			defer wg.Done()
+			semaphore <- struct{}{}        // Acquire
+			defer func() { <-semaphore }() // Release
 
-			// Get pool
-			pool, err := o.poolsUseCase.GetPool(poolID)
-			if err != nil {
-				return
+			value, err := o.computePerfectArbAmountIfExists(blockCtx, proposedAmountIn, denomIn, denomOut, poolID)
+
+			results <- struct {
+				poolID    uint64
+				denomIn   string
+				denomOut  string
+				amount    osmomath.Int
+				isSuccess bool
+				err       error
+			}{
+				poolID:    poolID,
+				denomIn:   denomIn,
+				denomOut:  denomOut,
+				amount:    value,
+				isSuccess: err == nil,
+				err:       err,
 			}
+		}(poolID, denoms[0], denoms[1])
 
-			denoms := pool.GetPoolDenoms()
+		// Direction 2
+		go func(poolID uint64, denomIn, denomOut string) {
+			defer wg.Done()
+			semaphore <- struct{}{}        // Acquire
+			defer func() { <-semaphore }() // Release
 
-			go func(denomIn, denomOut string) {
-				defer wg.Done()
+			value, err := o.computePerfectArbAmountIfExists(blockCtx, proposedAmountIn, denomIn, denomOut, poolID)
 
-				// NOTE: if we get here we have simulated a profitable arb.
-				value, err := o.computePerfectArbAmountIfExists(blockCtx, proposedAmountIn, denomIn, denomOut, poolID)
-				if err != nil {
-					o.logger.Error("failed to compute perfect arb amount", zap.Error(err))
-					return
-				}
-
-				o.logger.Info("computed perfect arb amount", zap.Uint64("pool_id", poolID), zap.String("denom_in", denomIn), zap.String("denom_out", denomOut), zap.Int64("amount", value.Int64()))
-			}(denoms[0], denoms[1])
-
-			go func(denomIn, denomOut string) {
-				defer wg.Done()
-
-				value, err := o.computePerfectArbAmountIfExists(blockCtx, proposedAmountIn, denomIn, denomOut, poolID)
-				if err != nil {
-					o.logger.Error("failed to compute perfect arb amount", zap.Error(err))
-					return
-				}
-
-				// NOTE: if we get here we have simulated a profitable arb.
-				o.logger.Info("computed perfect arb amount", zap.Uint64("pool_id", poolID), zap.String("denom_in", denomIn), zap.String("denom_out", denomOut), zap.Int64("amount", value.Int64()))
-			}(denoms[1], denoms[0])
-		}(poolID)
+			results <- struct {
+				poolID    uint64
+				denomIn   string
+				denomOut  string
+				amount    osmomath.Int
+				isSuccess bool
+				err       error
+			}{
+				poolID:    poolID,
+				denomIn:   denomIn,
+				denomOut:  denomOut,
+				amount:    value,
+				isSuccess: err == nil,
+				err:       err,
+			}
+		}(poolID, denoms[1], denoms[0])
 	}
 
-	o.logger.Info("processed end block in orderbook filler ingest plugin", zap.Uint64("block_height", blockHeight))
+	// Close results channel when all work is done
+	go func() {
+		wg.Wait()
+		close(results)
+	}()
+
+	// Process results as they come in
+	successCount := 0
+	for result := range results {
+		if result.isSuccess {
+			successCount++
+			o.logger.Info("computed perfect arb amount",
+				zap.Uint64("pool_id", result.poolID),
+				zap.String("denom_in", result.denomIn),
+				zap.String("denom_out", result.denomOut),
+				zap.Int64("amount", result.amount.Int64()))
+		} else if result.err != nil {
+			o.logger.Debug("failed to compute perfect arb amount",
+				zap.Error(result.err),
+				zap.Uint64("pool_id", result.poolID),
+				zap.String("denom_in", result.denomIn),
+				zap.String("denom_out", result.denomOut))
+		}
+	}
+
+	o.logger.Info("processed end block in orderbook filler ingest plugin",
+		zap.Uint64("block_height", blockHeight),
+		zap.Int("successful_arbs", successCount))
 	return nil
 }
 
